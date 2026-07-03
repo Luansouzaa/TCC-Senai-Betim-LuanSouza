@@ -1,31 +1,33 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
-import mysql.connector
+import pymysql
+import pymysql.cursors
 from functools import wraps
 from datetime import datetime
 import hashlib
-
+ 
 app = Flask(__name__)
 app.secret_key = 'fale_facil_chave_secreta_2025'
-
+ 
 import os
-
+ 
 DB_CONFIG = {
     'host':     os.environ.get('MYSQLHOST', 'localhost'),
     'user':     os.environ.get('MYSQLUSER', 'root'),
-    'password': os.environ.get('MYSQLPASSWORD', 'SUA_SENHA_AQUI'),
+    'password': os.environ.get('MYSQLPASSWORD', ''),
     'database': os.environ.get('MYSQLDATABASE', 'fale_facil_db'),
     'port':     int(os.environ.get('MYSQLPORT', 3306)),
-    'charset':  'utf8mb4'
+    'charset':  'utf8mb4',
+    'cursorclass': pymysql.cursors.DictCursor
 }
-
+ 
 def get_db():
-    return mysql.connector.connect(**DB_CONFIG)
-
+    return pymysql.connect(**DB_CONFIG)
+ 
 def hash_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
-
-# ── Decorators ────────────────────────────────────────────────────────────────
-
+ 
+#Esse bloco verifica se o usuário está logado
+ 
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -34,7 +36,7 @@ def login_required(f):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated
-
+ #Esse bloco verifica se o usuário logado é admin, se for ele vai para tela de inicio , senão volta pra tela de login
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -45,26 +47,26 @@ def admin_required(f):
             return redirect(url_for('index'))
         return f(*args, **kwargs)
     return decorated
-
-# ── Auth ──────────────────────────────────────────────────────────────────────
-
+ 
+# Aqui fica as rotas, o caminho que o site vai seguir, (login,dashboard,feedback)
+ 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if 'usuario_id' in session:
         return redirect(url_for('index'))
-
+ 
     if request.method == 'POST':
         email = request.form['email'].strip()
         senha = request.form['senha']
-
+ 
         conn = get_db()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         cursor.execute("SELECT * FROM usuarios WHERE email = %s AND senha = %s",
                        (email, hash_senha(senha)))
         usuario = cursor.fetchone()
         cursor.close()
         conn.close()
-
+ 
         if usuario:
             session['usuario_id'] = usuario['id']
             session['nome']       = usuario['nome']
@@ -73,46 +75,46 @@ def login():
             return redirect(url_for('index'))
         else:
             flash('Email ou senha incorretos.', 'erro')
-
+ 
     return render_template('login.html')
-
-
+ 
+ 
 @app.route('/logout')
 def logout():
     session.clear()
     return redirect(url_for('login'))
-
+ 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
-
+ 
 @app.route('/')
 @login_required
 def index():
     conn = get_db()
-    cursor = conn.cursor(dictionary=True)
-
+    cursor = conn.cursor()
+ 
     filtro    = request.args.get('filtro', '')
     categoria = request.args.get('categoria', '')
-
+ 
     if session['perfil'] == 'admin':
         query  = "SELECT f.*, u.nome as autor FROM feedbacks f LEFT JOIN usuarios u ON f.usuario_id = u.id WHERE 1=1"
         params = []
     else:
         query  = "SELECT f.*, u.nome as autor FROM feedbacks f LEFT JOIN usuarios u ON f.usuario_id = u.id WHERE f.usuario_id = %s"
         params = [session['usuario_id']]
-
+ 
     if filtro:
         query += " AND (f.titulo LIKE %s OR f.descricao LIKE %s)"
         like   = f"%{filtro}%"
         params.extend([like, like])
-
+ 
     if categoria:
         query += " AND f.categoria = %s"
         params.append(categoria)
-
+ 
     query += " ORDER BY f.criado_em DESC"
     cursor.execute(query, params)
     feedbacks = cursor.fetchall()
-
+ 
     if session['perfil'] == 'admin':
         cursor.execute("SELECT COUNT(*) AS n FROM feedbacks")
         total = cursor.fetchone()['n']
@@ -132,23 +134,23 @@ def index():
         resolvidos = cursor.fetchone()['n']
         cursor.execute("SELECT COUNT(*) AS n FROM feedbacks WHERE usuario_id=%s AND DATE(criado_em)=CURDATE()", (uid,))
         hoje = cursor.fetchone()['n']
-
+ 
     cursor.close()
     conn.close()
-
+ 
     stats = {'total': total, 'pendentes': pendentes, 'resolvidos': resolvidos, 'hoje': hoje}
     return render_template('index.html', feedbacks=feedbacks, stats=stats,
                            filtro=filtro, categoria=categoria)
-
+ 
 # ── Novo feedback ─────────────────────────────────────────────────────────────
-
+ 
 @app.route('/novo', methods=['GET', 'POST'])
 @login_required
 def novo_feedback():
     if session.get('perfil') == 'admin':
         flash('Administradores nao podem enviar feedbacks.', 'info')
         return redirect(url_for('index'))
-
+ 
     if request.method == 'POST':
         anonimo      = request.form.get('anonimo') == '1'
         funcionario  = 'Anonimo' if anonimo else request.form.get('funcionario', '').strip()
@@ -157,15 +159,15 @@ def novo_feedback():
         titulo       = request.form.get('titulo', '').strip()
         descricao    = request.form.get('descricao', '').strip()
         prioridade   = request.form.get('prioridade', 'Media')
-
+ 
         if not all([categoria, titulo, descricao]):
             flash('Preencha todos os campos obrigatorios.', 'erro')
             return render_template('form.html', modo='novo', dados=request.form)
-
+ 
         if not anonimo and not all([funcionario, departamento]):
             flash('Preencha seu nome e departamento.', 'erro')
             return render_template('form.html', modo='novo', dados=request.form)
-
+ 
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute(
@@ -177,39 +179,39 @@ def novo_feedback():
         novo_id = cursor.lastrowid
         cursor.close()
         conn.close()
-
+ 
         # Buscar o feedback recém criado para mostrar na tela de sucesso
         conn = get_db()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         cursor.execute("SELECT * FROM feedbacks WHERE id = %s", (novo_id,))
         feedback = cursor.fetchone()
         cursor.close()
         conn.close()
-
+ 
         return render_template('sucesso.html', feedback=feedback)
-
+ 
     return render_template('form.html', modo='novo', dados={})
-
+ 
 # ── Editar feedback ───────────────────────────────────────────────────────────
-
+ 
 @app.route('/editar/<int:id>', methods=['GET', 'POST'])
 @login_required
 def editar_feedback(id):
     conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     cursor.execute("SELECT * FROM feedbacks WHERE id = %s", (id,))
     feedback = cursor.fetchone()
-
+ 
     if not feedback:
         flash('Feedback nao encontrado.', 'erro')
         cursor.close(); conn.close()
         return redirect(url_for('index'))
-
+ 
     # Ninguém pode editar feedbacks
     flash('Edicao de feedbacks nao e permitida.', 'erro')
     cursor.close(); conn.close()
     return redirect(url_for('index'))
-
+ 
     if request.method == 'POST':
         anonimo      = request.form.get('anonimo') == '1'
         funcionario  = 'Anonimo' if anonimo else request.form.get('funcionario', '').strip()
@@ -219,7 +221,7 @@ def editar_feedback(id):
         descricao    = request.form.get('descricao', '').strip()
         prioridade   = request.form.get('prioridade', 'Media')
         status       = request.form.get('status', feedback['status']) if session['perfil'] == 'admin' else feedback['status']
-
+ 
         cursor.execute(
             """UPDATE feedbacks SET funcionario=%s, departamento=%s, categoria=%s,
                titulo=%s, descricao=%s, prioridade=%s, status=%s, anonimo=%s WHERE id=%s""",
@@ -227,78 +229,78 @@ def editar_feedback(id):
         )
         conn.commit()
         cursor.close(); conn.close()
-
+ 
         flash('Feedback atualizado com sucesso!', 'sucesso')
         return redirect(url_for('index'))
-
+ 
     cursor.close(); conn.close()
     return render_template('form.html', modo='editar', dados=feedback)
-
+ 
 # ── Detalhe ───────────────────────────────────────────────────────────────────
-
+ 
 @app.route('/detalhe/<int:id>')
 @login_required
 def detalhe_feedback(id):
     conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     cursor.execute("SELECT * FROM feedbacks WHERE id = %s", (id,))
     feedback = cursor.fetchone()
     cursor.close(); conn.close()
-
+ 
     if not feedback:
         flash('Feedback nao encontrado.', 'erro')
         return redirect(url_for('index'))
-
+ 
     if session['perfil'] != 'admin' and feedback['usuario_id'] != session['usuario_id']:
         flash('Voce nao tem permissao para ver este feedback.', 'erro')
         return redirect(url_for('index'))
-
+ 
     return render_template('detalhe.html', feedback=feedback)
-
+ 
 # ── Perfil ────────────────────────────────────────────────────────────────────
-
+ 
 @app.route('/perfil')
 @login_required
 def perfil():
     conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     cursor.execute("SELECT id, nome, email, perfil FROM usuarios WHERE id = %s", (session['usuario_id'],))
     usuario = cursor.fetchone()
     cursor.close(); conn.close()
     return render_template('perfil.html', usuario=usuario)
-
+ 
 # ── Atualizar status ──────────────────────────────────────────────────────────
-
+ 
 @app.route('/atualizar_status/<int:id>', methods=['POST'])
 @admin_required
 def atualizar_status(id):
     data = request.get_json()
     novo_status = data.get('status')
-
+ 
     if novo_status not in ['Pendente', 'Em Analise', 'Resolvido']:
         return jsonify({'erro': 'Status invalido'}), 400
-
+ 
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("UPDATE feedbacks SET status=%s WHERE id=%s", (novo_status, id))
     conn.commit()
     cursor.close(); conn.close()
-
+ 
     return jsonify({'sucesso': True, 'status': novo_status})
-
+ 
 # ── Usuários ──────────────────────────────────────────────────────────────────
-
+ 
 @app.route('/usuarios')
 @admin_required
 def usuarios():
     conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     cursor.execute("SELECT id, nome, email, perfil, criado_em FROM usuarios ORDER BY criado_em DESC")
     usuarios = cursor.fetchall()
     cursor.close(); conn.close()
     return render_template('usuarios.html', usuarios=usuarios)
-
-
+ 
+ 
 @app.route('/usuarios/novo', methods=['GET', 'POST'])
 @admin_required
 def novo_usuario():
@@ -307,11 +309,11 @@ def novo_usuario():
         email  = request.form['email'].strip()
         senha  = request.form['senha']
         perfil = request.form['perfil']
-
+ 
         if not all([nome, email, senha]):
             flash('Preencha todos os campos.', 'erro')
             return render_template('form_usuario.html', dados=request.form)
-
+ 
         conn = get_db()
         cursor = conn.cursor()
         try:
@@ -322,31 +324,31 @@ def novo_usuario():
             conn.commit()
             flash('Usuario criado com sucesso!', 'sucesso')
             return redirect(url_for('usuarios'))
-        except mysql.connector.IntegrityError:
+        except pymysql.err.IntegrityError:
             flash('Este email ja esta cadastrado.', 'erro')
         finally:
             cursor.close(); conn.close()
-
+ 
     return render_template('form_usuario.html', dados={})
-
-
+ 
+ 
 @app.route('/usuarios/excluir/<int:id>', methods=['POST'])
 @admin_required
 def excluir_usuario(id):
     if id == session['usuario_id']:
         flash('Voce nao pode excluir seu proprio usuario.', 'erro')
         return redirect(url_for('usuarios'))
-
+ 
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM usuarios WHERE id = %s", (id,))
     conn.commit()
     cursor.close(); conn.close()
-
+ 
     flash('Usuario removido.', 'info')
     return redirect(url_for('usuarios'))
-
-
+ 
+ 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', debug=False, port=port)
