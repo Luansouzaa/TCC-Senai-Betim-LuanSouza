@@ -167,4 +167,4 @@ Acesse: http://localhost:5000
 
 ## Licença
 
-Projeto desenvolvido para fins acadêmicos — TCC. SENAI MARIA MAALENA NOGUEIRA BETIM
+Projeto desenvolvido para fins acadêmicos — TCC. SENAI MARIA MADALENA NOGUEIRA BETIM
