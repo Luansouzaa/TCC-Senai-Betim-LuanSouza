@@ -1,0 +1,118 @@
+
+
+-- Criar e selecionar o banco
+CREATE DATABASE IF NOT EXISTS fale_facil_db
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+USE fale_facil_db;
+
+-- Tabela de usuarios
+CREATE TABLE IF NOT EXISTS usuarios (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    nome       VARCHAR(100) NOT NULL,
+    email      VARCHAR(150) NOT NULL UNIQUE,
+    senha      VARCHAR(64)  NOT NULL,
+    perfil     ENUM('admin','funcionario') NOT NULL DEFAULT 'funcionario',
+    criado_em  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Tabela de feedbacks
+CREATE TABLE IF NOT EXISTS feedbacks (
+    id            INT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id    INT NOT NULL,
+    funcionario   VARCHAR(100) NOT NULL,
+    departamento  VARCHAR(100) NOT NULL,
+    categoria     ENUM('Sugestao','Reclamacao','Elogio','Melhoria','Outro') NOT NULL,
+    titulo        VARCHAR(200) NOT NULL,
+    descricao     TEXT NOT NULL,
+    prioridade    ENUM('Baixa','Media','Alta','Urgente') NOT NULL DEFAULT 'Media',
+    status        ENUM('Pendente','Em Analise','Resolvido') NOT NULL DEFAULT 'Pendente',
+    anonimo       TINYINT(1) NOT NULL DEFAULT 0,
+    criado_em     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Usuarios padrao
+-- Senha do admin: admin123
+-- Senha do funcionario: func123
+INSERT INTO usuarios (nome, email, senha, perfil) VALUES
+('Administrador', 'admin@empresa.com',
+ '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', 'admin'),
+('Joao Silva', 'joao@empresa.com',
+ '98bedb5e9f0218ff6dd0e95e914fd25f21f3fa8ef599b7a09a900e580f464e7e', 'funcionario');
+
+
+--  CONSULTAS UTILIZADAS NO SISTEMA
+
+-- Autenticacao (login)
+-- SELECT * FROM usuarios WHERE email = %s AND senha = %s;
+
+-- Admin: busca todos os feedbacks com nome do autor
+-- SELECT f.*, u.nome as autor
+-- FROM feedbacks f
+-- LEFT JOIN usuarios u ON f.usuario_id = u.id
+-- WHERE 1=1
+-- ORDER BY f.criado_em DESC;
+
+-- Funcionario: busca apenas os feedbacks do proprio usuario
+-- SELECT f.*, u.nome as autor
+-- FROM feedbacks f
+-- LEFT JOIN usuarios u ON f.usuario_id = u.id
+-- WHERE f.usuario_id = %s
+-- ORDER BY f.criado_em DESC;
+
+-- Estatisticas do dashboard
+-- SELECT COUNT(*) AS n FROM feedbacks;
+-- SELECT COUNT(*) AS n FROM feedbacks WHERE status = 'Pendente';
+-- SELECT COUNT(*) AS n FROM feedbacks WHERE status = 'Resolvido';
+-- SELECT COUNT(*) AS n FROM feedbacks WHERE DATE(criado_em) = CURDATE();
+
+-- Cadastro de feedback
+-- INSERT INTO feedbacks
+-- (usuario_id, funcionario, departamento, categoria, titulo, descricao, prioridade, anonimo)
+-- VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+
+-- Buscar feedback por ID
+-- SELECT * FROM feedbacks WHERE id = %s;
+
+-- Atualizar status do feedback (admin)
+-- UPDATE feedbacks SET status = %s WHERE id = %s;
+
+-- Perfil do usuario
+-- SELECT id, nome, email, perfil FROM usuarios WHERE id = %s;
+
+-- Listar todos os usuarios
+-- SELECT id, nome, email, perfil, criado_em FROM usuarios ORDER BY criado_em DESC;
+
+-- Inserir novo usuario
+-- INSERT INTO usuarios (nome, email, senha, perfil) VALUES (%s, %s, %s, %s);
+
+-- Excluir usuario
+-- DELETE FROM usuarios WHERE id = %s;
+
+
+--  COMANDOS DE MANUTENCAO
+
+
+-- Ver todos os bancos de dados
+-- SHOW DATABASES;
+
+-- Ver todas as tabelas do banco
+-- SHOW TABLES;
+
+-- Ver estrutura da tabela usuarios
+-- DESCRIBE usuarios;
+
+-- Ver estrutura da tabela feedbacks
+-- DESCRIBE feedbacks;
+
+-- Ver todos os usuarios cadastrados
+-- SELECT * FROM usuarios;
+
+-- Ver todos os feedbacks cadastrados
+-- SELECT * FROM feedbacks;
+
+-- Resetar banco (CUIDADO: apaga todos os dados)
+-- DROP DATABASE fale_facil_db;
