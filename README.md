@@ -83,7 +83,7 @@ exit
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
-    'password': 'SUA_SENHA_AQUI',
+    'password': 'root',
     'database': 'fale_facil_db',
 }
 ```
